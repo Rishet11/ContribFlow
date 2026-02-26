@@ -1,7 +1,7 @@
 """
 ContribFlow — FastAPI Backend
 
-Phase 1-2: Analyzes repos, finds issues, and provides codebase understanding.
+Full pipeline: analyze → find issues → repo analysis → contribution plan.
 """
 
 import os
@@ -14,13 +14,14 @@ from dotenv import load_dotenv
 from tools.github_tool import resolve_input
 from agents.issue_finder import issue_finder_node
 from agents.repo_analyst import repo_analyst_node
+from agents.contrib_planner import contrib_planner_node
 
 load_dotenv()
 
 app = FastAPI(
     title="ContribFlow API",
     description="AI-powered open source contribution guide",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 # CORS for Next.js frontend
@@ -68,6 +69,16 @@ class SelectIssueRequest(BaseModel):
 class SelectIssueResponse(BaseModel):
     session_id: str
     repo_analysis: str | None = None
+    error: str | None = None
+
+
+class GeneratePlanRequest(BaseModel):
+    session_id: str
+
+
+class GeneratePlanResponse(BaseModel):
+    session_id: str
+    action_plan: str | None = None
     error: str | None = None
 
 
@@ -193,6 +204,44 @@ def select_issue(request: SelectIssueRequest):
     return SelectIssueResponse(
         session_id=session_id,
         repo_analysis=state.get("repo_analysis"),
+        error=None,
+    )
+
+
+@app.post("/api/generate-plan", response_model=GeneratePlanResponse)
+def generate_plan(request: GeneratePlanRequest):
+    """
+    Phase 3 endpoint: Generate a contribution action plan.
+
+    Requires a completed repo analysis (select-issue must be called first).
+    """
+    session_id = request.session_id
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    state = sessions[session_id]
+
+    if not state.get("repo_analysis"):
+        raise HTTPException(
+            status_code=400,
+            detail="Repo analysis not complete. Select an issue first.",
+        )
+
+    # Run Contrib Planner Agent
+    result = contrib_planner_node(state)
+    state.update(result)
+    sessions[session_id] = state
+
+    if state.get("error"):
+        return GeneratePlanResponse(
+            session_id=session_id,
+            action_plan=None,
+            error=state["error"],
+        )
+
+    return GeneratePlanResponse(
+        session_id=session_id,
+        action_plan=state.get("action_plan"),
         error=None,
     )
 
