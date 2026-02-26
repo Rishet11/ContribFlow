@@ -690,6 +690,81 @@ body::before {
   border-left: 3px solid var(--accent-primary);
 }
 
+/* ========== DOMAIN CONTEXT ========== */
+
+.domain-context-card {
+  padding: 20px 24px;
+  border-radius: var(--radius-md);
+  background: rgba(76, 235, 154, 0.04);
+  border: 1px solid rgba(76, 235, 154, 0.15);
+  margin-bottom: 20px;
+}
+
+.domain-context-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.domain-context-icon {
+  font-size: 1.2rem;
+}
+
+.domain-context-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--success);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.domain-context-body {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.domain-context-body h1,
+.domain-context-body h2,
+.domain-context-body h3 {
+  color: var(--text-primary);
+  font-size: 1rem;
+  margin: 12px 0 6px;
+}
+
+.domain-context-body code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(76, 235, 154, 0.08);
+  color: var(--success);
+  font-size: 0.85em;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.domain-context-body strong {
+  color: var(--text-primary);
+}
+
+.domain-context-body ul {
+  padding-left: 20px;
+  margin-bottom: 8px;
+  list-style: none;
+}
+
+.domain-context-body li {
+  position: relative;
+  padding-left: 16px;
+  margin-bottom: 4px;
+}
+
+.domain-context-body li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--success);
+}
+
 /* ========== RESPONSIVE ========== */
 
 @media (max-width: 640px) {

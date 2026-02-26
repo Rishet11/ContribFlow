@@ -42,6 +42,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<AppStep>("input");
   const [repoAnalysis, setRepoAnalysis] = useState<string | null>(null);
+  const [domainContext, setDomainContext] = useState<string | null>(null);
   const [actionPlan, setActionPlan] = useState<string | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
 
@@ -52,6 +53,7 @@ export default function HomePage() {
     setError(null);
     setResult(null);
     setRepoAnalysis(null);
+    setDomainContext(null);
     setActionPlan(null);
     setSelectedIssue(null);
     setStep("input");
@@ -114,6 +116,7 @@ export default function HomePage() {
         setStep("issues");
       } else {
         setRepoAnalysis(data.repo_analysis);
+        setDomainContext(data.domain_context || null);
         setStep("analysis");
       }
     } catch (err: unknown) {
@@ -172,6 +175,7 @@ export default function HomePage() {
     setResult(null);
     setError(null);
     setRepoAnalysis(null);
+    setDomainContext(null);
     setActionPlan(null);
     setSelectedIssue(null);
     setStep("input");
@@ -180,6 +184,7 @@ export default function HomePage() {
   const handleBackToIssues = () => {
     setStep("issues");
     setRepoAnalysis(null);
+    setDomainContext(null);
     setActionPlan(null);
     setSelectedIssue(null);
     setError(null);
@@ -418,6 +423,19 @@ export default function HomePage() {
               #{selectedIssue.number} — {selectedIssue.title}
             </span>
           </div>
+
+          {domainContext && (
+            <div className="domain-context-card">
+              <div className="domain-context-header">
+                <span className="domain-context-icon">🧬</span>
+                <span className="domain-context-title">Domain Primer</span>
+              </div>
+              <div
+                className="domain-context-body"
+                dangerouslySetInnerHTML={{ __html: formatMarkdown(domainContext) }}
+              />
+            </div>
+          )}
 
           <div
             className="analysis-content"
