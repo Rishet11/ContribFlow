@@ -82,7 +82,9 @@ def resolve_input(user_input: str) -> dict:
             org = g.get_organization(user_input)
             repos = list(org.get_repos(sort="stars", direction="desc"))
             if repos:
-                top_repo = repos[0]
+                # Prefer repo matching org name (e.g., deepchem/deepchem)
+                name_match = [r for r in repos if r.name.lower() == user_input.lower()]
+                top_repo = name_match[0] if name_match else repos[0]
                 return {
                     "resolved_repo": top_repo.full_name,
                     "input_type": "org",
