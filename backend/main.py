@@ -70,7 +70,6 @@ class SelectIssueRequest(BaseModel):
 class SelectIssueResponse(BaseModel):
     session_id: str
     repo_analysis: str | None = None
-    domain_context: str | None = None
     error: str | None = None
 
 
@@ -81,6 +80,16 @@ class GeneratePlanRequest(BaseModel):
 class GeneratePlanResponse(BaseModel):
     session_id: str
     action_plan: str | None = None
+    error: str | None = None
+
+
+class DomainContextRequest(BaseModel):
+    session_id: str
+
+
+class DomainContextResponse(BaseModel):
+    session_id: str
+    domain_context: str | None = None
     error: str | None = None
 
 
@@ -194,24 +203,18 @@ def select_issue(request: SelectIssueRequest):
     result = repo_analyst_node(state)
     state.update(result)
 
+    sessions[session_id] = state
+
     if state.get("error"):
-        sessions[session_id] = state
         return SelectIssueResponse(
             session_id=session_id,
             repo_analysis=None,
             error=state["error"],
         )
 
-    # Run Domain Context Agent (optional, won't fail pipeline)
-    domain_result = domain_context_node(state)
-    state.update(domain_result)
-
-    sessions[session_id] = state
-
     return SelectIssueResponse(
         session_id=session_id,
         repo_analysis=state.get("repo_analysis"),
-        domain_context=state.get("domain_context"),
         error=None,
     )
 
@@ -250,6 +253,39 @@ def generate_plan(request: GeneratePlanRequest):
     return GeneratePlanResponse(
         session_id=session_id,
         action_plan=state.get("action_plan"),
+        error=None,
+    )
+
+
+@app.post("/api/domain-context", response_model=DomainContextResponse)
+def get_domain_context(request: DomainContextRequest):
+    """
+    Opt-in endpoint: Generate a domain primer for specialized repos.
+
+    Called on-demand when the user clicks "Show Domain Primer".
+    """
+    session_id = request.session_id
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    state = sessions[session_id]
+
+    # Return cached result if already generated
+    if state.get("domain_context"):
+        return DomainContextResponse(
+            session_id=session_id,
+            domain_context=state["domain_context"],
+            error=None,
+        )
+
+    # Run Domain Context Agent
+    result = domain_context_node(state)
+    state.update(result)
+    sessions[session_id] = state
+
+    return DomainContextResponse(
+        session_id=session_id,
+        domain_context=state.get("domain_context"),
         error=None,
     )
 

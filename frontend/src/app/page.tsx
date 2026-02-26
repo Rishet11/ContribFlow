@@ -43,6 +43,7 @@ export default function HomePage() {
   const [step, setStep] = useState<AppStep>("input");
   const [repoAnalysis, setRepoAnalysis] = useState<string | null>(null);
   const [domainContext, setDomainContext] = useState<string | null>(null);
+  const [loadingDomain, setLoadingDomain] = useState(false);
   const [actionPlan, setActionPlan] = useState<string | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
 
@@ -116,7 +117,6 @@ export default function HomePage() {
         setStep("issues");
       } else {
         setRepoAnalysis(data.repo_analysis);
-        setDomainContext(data.domain_context || null);
         setStep("analysis");
       }
     } catch (err: unknown) {
@@ -159,6 +159,31 @@ export default function HomePage() {
         err instanceof Error ? err.message : "Something went wrong. Please try again."
       );
       setStep("analysis");
+    }
+  };
+
+  const handleDomainContext = async () => {
+    if (!result || loadingDomain) return;
+    setLoadingDomain(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/domain-context`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: result.session_id }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.detail || `Server error (${res.status})`);
+      }
+
+      const data = await res.json();
+      setDomainContext(data.domain_context || null);
+    } catch {
+      // Silently ignore — domain context is optional
+    } finally {
+      setLoadingDomain(false);
     }
   };
 
@@ -424,7 +449,7 @@ export default function HomePage() {
             </span>
           </div>
 
-          {domainContext && (
+          {domainContext ? (
             <div className="domain-context-card">
               <div className="domain-context-header">
                 <span className="domain-context-icon">🧬</span>
@@ -435,6 +460,15 @@ export default function HomePage() {
                 dangerouslySetInnerHTML={{ __html: formatMarkdown(domainContext) }}
               />
             </div>
+          ) : (
+            <button
+              className="domain-btn"
+              onClick={handleDomainContext}
+              disabled={loadingDomain}
+              id="domain-context-btn"
+            >
+              {loadingDomain ? "🧬 Loading primer..." : "🧬 Show Domain Primer"}
+            </button>
           )}
 
           <div

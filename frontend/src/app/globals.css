@@ -765,6 +765,31 @@ body::before {
   color: var(--success);
 }
 
+.domain-btn {
+  width: 100%;
+  padding: 12px 20px;
+  border-radius: var(--radius-md);
+  border: 1px dashed rgba(76, 235, 154, 0.25);
+  background: rgba(76, 235, 154, 0.03);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  margin-bottom: 20px;
+}
+
+.domain-btn:hover:not(:disabled) {
+  background: rgba(76, 235, 154, 0.06);
+  border-color: rgba(76, 235, 154, 0.4);
+  color: var(--success);
+}
+
+.domain-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 /* ========== RESPONSIVE ========== */
 
 @media (max-width: 640px) {
