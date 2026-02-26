@@ -15,6 +15,7 @@ from tools.github_tool import resolve_input
 from agents.issue_finder import issue_finder_node
 from agents.repo_analyst import repo_analyst_node
 from agents.contrib_planner import contrib_planner_node
+from agents.domain_context import domain_context_node
 
 load_dotenv()
 
@@ -69,6 +70,7 @@ class SelectIssueRequest(BaseModel):
 class SelectIssueResponse(BaseModel):
     session_id: str
     repo_analysis: str | None = None
+    domain_context: str | None = None
     error: str | None = None
 
 
@@ -192,18 +194,24 @@ def select_issue(request: SelectIssueRequest):
     result = repo_analyst_node(state)
     state.update(result)
 
-    sessions[session_id] = state
-
     if state.get("error"):
+        sessions[session_id] = state
         return SelectIssueResponse(
             session_id=session_id,
             repo_analysis=None,
             error=state["error"],
         )
 
+    # Run Domain Context Agent (optional, won't fail pipeline)
+    domain_result = domain_context_node(state)
+    state.update(domain_result)
+
+    sessions[session_id] = state
+
     return SelectIssueResponse(
         session_id=session_id,
         repo_analysis=state.get("repo_analysis"),
+        domain_context=state.get("domain_context"),
         error=None,
     )
 
