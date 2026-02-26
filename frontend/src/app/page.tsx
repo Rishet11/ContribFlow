@@ -32,7 +32,7 @@ const EXAMPLES = [
 ];
 
 /* ─── Steps ─── */
-type AppStep = "input" | "issues" | "analyzing" | "analysis";
+type AppStep = "input" | "issues" | "analyzing" | "analysis" | "planning" | "plan";
 
 /* ─── Component ─── */
 export default function HomePage() {
@@ -42,6 +42,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<AppStep>("input");
   const [repoAnalysis, setRepoAnalysis] = useState<string | null>(null);
+  const [actionPlan, setActionPlan] = useState<string | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
 
   const handleAnalyze = async () => {
@@ -51,6 +52,7 @@ export default function HomePage() {
     setError(null);
     setResult(null);
     setRepoAnalysis(null);
+    setActionPlan(null);
     setSelectedIssue(null);
     setStep("input");
 
@@ -122,6 +124,41 @@ export default function HomePage() {
     }
   };
 
+  const handleGeneratePlan = async () => {
+    if (!result) return;
+
+    setStep("planning");
+    setError(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/generate-plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: result.session_id }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.detail || `Server error (${res.status})`);
+      }
+
+      const data = await res.json();
+
+      if (data.error) {
+        setError(data.error);
+        setStep("analysis");
+      } else {
+        setActionPlan(data.action_plan);
+        setStep("plan");
+      }
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Something went wrong. Please try again."
+      );
+      setStep("analysis");
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !loading) handleAnalyze();
   };
@@ -135,6 +172,7 @@ export default function HomePage() {
     setResult(null);
     setError(null);
     setRepoAnalysis(null);
+    setActionPlan(null);
     setSelectedIssue(null);
     setStep("input");
   };
@@ -142,7 +180,14 @@ export default function HomePage() {
   const handleBackToIssues = () => {
     setStep("issues");
     setRepoAnalysis(null);
+    setActionPlan(null);
     setSelectedIssue(null);
+    setError(null);
+  };
+
+  const handleBackToAnalysis = () => {
+    setStep("analysis");
+    setActionPlan(null);
     setError(null);
   };
 
@@ -151,14 +196,19 @@ export default function HomePage() {
     { label: "Find Issues", icon: "🔍" },
     { label: "Select Issue", icon: "✋" },
     { label: "Analyze Repo", icon: "🧠" },
+    { label: "Action Plan", icon: "📋" },
   ];
 
-  const currentProgressIndex =
-    step === "input" ? -1
-    : step === "issues" ? 1
-    : step === "analyzing" ? 2
-    : step === "analysis" ? 3
-    : 0;
+  const stepToProgress: Record<AppStep, number> = {
+    input: -1,
+    issues: 1,
+    analyzing: 2,
+    analysis: 2,
+    planning: 3,
+    plan: 4,
+  };
+
+  const currentProgressIndex = stepToProgress[step] ?? -1;
 
   return (
     <div className="page-container">
@@ -189,13 +239,13 @@ export default function HomePage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={loading || step === "analyzing"}
+            disabled={loading || step === "analyzing" || step === "planning"}
             id="main-input"
           />
           <button
             className="analyze-btn"
             onClick={handleAnalyze}
-            disabled={loading || !input.trim() || step === "analyzing"}
+            disabled={loading || !input.trim() || step === "analyzing" || step === "planning"}
             id="analyze-btn"
           >
             {loading ? "Analyzing..." : "Find Issues"}
@@ -264,8 +314,19 @@ export default function HomePage() {
         </section>
       )}
 
+      {/* ─── PLANNING ─── */}
+      {step === "planning" && (
+        <section className="loading-section">
+          <div className="loading-spinner" />
+          <p className="loading-text">Generating your action plan...</p>
+          <p className="loading-subtext">
+            Creating a step-by-step contribution guide tailored to this issue
+          </p>
+        </section>
+      )}
+
       {/* ─── ERROR ─── */}
-      {error && step !== "analyzing" && !loading && (
+      {error && step !== "analyzing" && step !== "planning" && !loading && (
         <section className="error-section">
           <div className="error-box">{error}</div>
           <button className="retry-btn" onClick={handleReset}>
@@ -367,15 +428,69 @@ export default function HomePage() {
             <button className="retry-btn" onClick={handleBackToIssues}>
               ← Pick a different issue
             </button>
-            <a
-              href={selectedIssue.url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
               className="analyze-btn"
-              style={{ textDecoration: "none", display: "inline-block" }}
+              onClick={handleGeneratePlan}
+              id="generate-plan-btn"
             >
-              Open Issue on GitHub →
-            </a>
+              Generate Action Plan →
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* ─── ACTION PLAN ─── */}
+      {step === "plan" && actionPlan && selectedIssue && (
+        <section className="results-section">
+          <div className="results-header">
+            <h2>Your Contribution Plan</h2>
+            <span className="repo-tag">📦 {result?.resolved_repo}</span>
+          </div>
+
+          <div className="selected-issue-banner">
+            <span className="selected-issue-label">Target Issue</span>
+            <span className="selected-issue-title">
+              #{selectedIssue.number} — {selectedIssue.title}
+            </span>
+          </div>
+
+          <div className="plan-content">
+            <div
+              className="analysis-content"
+              dangerouslySetInnerHTML={{ __html: formatMarkdown(actionPlan) }}
+            />
+          </div>
+
+          <div className="analysis-actions">
+            <button className="retry-btn" onClick={handleBackToAnalysis}>
+              ← Back to Analysis
+            </button>
+            <div style={{ display: "flex", gap: "12px" }}>
+              <button
+                className="retry-btn"
+                onClick={() => {
+                  navigator.clipboard.writeText(actionPlan);
+                }}
+                title="Copy plan to clipboard"
+              >
+                📋 Copy Plan
+              </button>
+              <a
+                href={selectedIssue.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="analyze-btn"
+                style={{ textDecoration: "none", display: "inline-block" }}
+              >
+                Open Issue on GitHub →
+              </a>
+            </div>
+          </div>
+
+          <div style={{ textAlign: "center", marginTop: "24px" }}>
+            <button className="retry-btn" onClick={handleReset}>
+              ← Start over with another repo
+            </button>
           </div>
         </section>
       )}

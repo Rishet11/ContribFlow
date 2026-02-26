@@ -684,6 +684,12 @@ body::before {
   gap: 12px;
 }
 
+/* ========== PLAN CONTENT ========== */
+
+.plan-content .analysis-content {
+  border-left: 3px solid var(--accent-primary);
+}
+
 /* ========== RESPONSIVE ========== */
 
 @media (max-width: 640px) {
