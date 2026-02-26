@@ -155,7 +155,7 @@ def get_beginner_issues(repo_full_name: str, max_issues: int = 20) -> list[dict]
         "low-hanging-fruit",
     ]
 
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=90)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=180)
     collected_issues = {}
 
     # Fetch issues with beginner-friendly labels
@@ -188,8 +188,8 @@ def get_beginner_issues(repo_full_name: str, max_issues: int = 20) -> list[dict]
         except Exception:
             continue
 
-    # If we didn't find enough, also grab recent open issues
-    if len(collected_issues) < 5:
+    # If we didn't find enough labeled issues, grab recent open issues (AI will filter)
+    if len(collected_issues) < 8:
         try:
             issues = repo.get_issues(
                 state="open",
@@ -198,7 +198,7 @@ def get_beginner_issues(repo_full_name: str, max_issues: int = 20) -> list[dict]
             )
             count = 0
             for issue in issues:
-                if count >= 30:
+                if count >= 50:
                     break
                 count += 1
                 try:

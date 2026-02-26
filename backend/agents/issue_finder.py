@@ -34,19 +34,24 @@ def get_llm():
 ISSUE_RANKING_PROMPT = """You are an expert open source contribution advisor. 
 A developer wants to make their first contribution to the repository: {repo}
 
-Here are the open issues found in the repository:
+Here are the open issues found in the repository (some may have beginner labels, others may not):
 
 {issues_text}
 
 Your job:
-1. Analyze each issue and determine how suitable it is for a FIRST-TIME contributor.
-2. Select the TOP 3-5 best issues (fewer if there aren't enough good ones).
-3. For each selected issue, provide:
+1. Analyze EVERY issue — even those without beginner labels may be great for first-time contributors.
+2. Evaluate beginner suitability based on:
+   - Scope: Small, well-defined tasks (docs, tests, small bug fixes) are better
+   - Prerequisites: Issues requiring minimal domain knowledge are better
+   - Clarity: Well-described issues with clear steps are better
+   - Labels like "good first issue" or "help wanted" are positive signals, but their ABSENCE doesn't mean the issue is hard
+3. Select the TOP 3-5 best issues for a newcomer (fewer if there aren't enough good ones).
+4. For each selected issue, provide:
    - A clear, plain-English explanation of what the issue is asking
-   - WHY this issue is good for a newcomer (e.g., "documentation fix, no domain knowledge needed")
+   - WHY this issue is good for a newcomer
    - A difficulty rating: "easy", "medium", or "hard"
 
-IMPORTANT: If none of the issues are suitable for beginners, say so honestly. Don't recommend bad issues.
+IMPORTANT: If none of the issues are suitable for beginners, return an empty array. Don't recommend bad issues.
 
 Respond in this exact JSON format (no markdown, no code blocks, just raw JSON):
 [
