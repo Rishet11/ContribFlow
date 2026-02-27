@@ -11,6 +11,8 @@ interface Issue {
   body: string;
   recommendation: string;
   difficulty: string;
+  difficulty_score?: number;
+  activity_score?: number;
 }
 
 interface AnalyzeResponse {
@@ -18,6 +20,17 @@ interface AnalyzeResponse {
   resolved_repo: string;
   input_type: string;
   issues: Issue[];
+  error: string | null;
+}
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+interface ChatResponse {
+  session_id: string;
+  reply: string | null;
   error: string | null;
 }
 
@@ -46,6 +59,10 @@ export default function HomePage() {
   const [loadingDomain, setLoadingDomain] = useState(false);
   const [actionPlan, setActionPlan] = useState<string | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
 
   const handleAnalyze = async () => {
     if (!input.trim()) return;
@@ -57,6 +74,9 @@ export default function HomePage() {
     setDomainContext(null);
     setActionPlan(null);
     setSelectedIssue(null);
+    setChatOpen(false);
+    setChatInput("");
+    setChatMessages([]);
     setStep("input");
 
     try {
@@ -212,6 +232,9 @@ export default function HomePage() {
     setDomainContext(null);
     setActionPlan(null);
     setSelectedIssue(null);
+    setChatOpen(false);
+    setChatInput("");
+    setChatMessages([]);
     setError(null);
   };
 
@@ -219,6 +242,57 @@ export default function HomePage() {
     setStep("analysis");
     setActionPlan(null);
     setError(null);
+  };
+
+  const handleChatSend = async () => {
+    if (!result || !chatInput.trim() || chatLoading) return;
+
+    const message = chatInput.trim();
+    setChatInput("");
+    setChatMessages((prev) => [...prev, { role: "user", content: message }]);
+    setChatLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: result.session_id,
+          message,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.detail || `Server error (${res.status})`);
+      }
+
+      const data: ChatResponse = await res.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: data.reply || "I couldn't generate a response for that question.",
+        },
+      ]);
+    } catch (err: unknown) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            err instanceof Error
+              ? `Error: ${err.message}`
+              : "Error: Something went wrong while sending your message.",
+        },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
   };
 
   /* ─── Progress Steps ─── */
@@ -410,6 +484,35 @@ export default function HomePage() {
 
                 <p className="issue-card-body">{issue.recommendation}</p>
 
+                {(issue.difficulty_score != null || issue.activity_score != null) && (
+                  <div className="score-bars">
+                    {issue.difficulty_score != null && (
+                      <div className="score-item">
+                        <span className="score-label">Difficulty</span>
+                        <div className="score-bar-track">
+                          <div
+                            className={`score-bar-fill ${issue.difficulty_score <= 3 ? 'score-easy' : issue.difficulty_score <= 6 ? 'score-medium' : 'score-hard'}`}
+                            style={{ width: `${issue.difficulty_score * 10}%` }}
+                          />
+                        </div>
+                        <span className="score-value">{issue.difficulty_score}/10</span>
+                      </div>
+                    )}
+                    {issue.activity_score != null && (
+                      <div className="score-item">
+                        <span className="score-label">Activity</span>
+                        <div className="score-bar-track">
+                          <div
+                            className={`score-bar-fill ${issue.activity_score >= 7 ? 'score-high-activity' : issue.activity_score >= 4 ? 'score-medium-activity' : 'score-low-activity'}`}
+                            style={{ width: `${issue.activity_score * 10}%` }}
+                          />
+                        </div>
+                        <span className="score-value">{issue.activity_score}/10</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span
                     className={`difficulty-badge difficulty-${issue.difficulty}`}
@@ -565,6 +668,67 @@ export default function HomePage() {
             <h3>Action Planner</h3>
             <p>Get a step-by-step plan to make your first PR</p>
           </div>
+        </section>
+      )}
+
+      {/* ─── SESSION CHAT (analysis + plan only) ─── */}
+      {(step === "analysis" || step === "plan") && result && selectedIssue && (
+        <section className="chat-shell">
+          <button
+            className="chat-toggle"
+            onClick={() => setChatOpen((prev) => !prev)}
+            type="button"
+          >
+            {chatOpen ? "Hide Follow-up Chat" : "Ask Follow-up Questions"}
+          </button>
+
+          {chatOpen && (
+            <div className="chat-panel">
+              <div className="chat-messages">
+                {chatMessages.length === 0 ? (
+                  <p className="chat-empty">
+                    Ask questions about this repo, issue, tests, or plan.
+                  </p>
+                ) : (
+                  chatMessages.map((msg, idx) => (
+                    <div key={`${msg.role}-${idx}`} className={`chat-bubble chat-${msg.role}`}>
+                      {msg.role === "assistant" ? (
+                        <div
+                          dangerouslySetInnerHTML={{ __html: formatMarkdown(msg.content) }}
+                        />
+                      ) : (
+                        <p>{msg.content}</p>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="chat-input-row">
+                <input
+                  className="chat-input"
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !chatLoading) {
+                      void handleChatSend();
+                    }
+                  }}
+                  placeholder="Ask a follow-up question..."
+                  disabled={chatLoading}
+                />
+                <button
+                  className="chat-send-btn"
+                  onClick={() => void handleChatSend()}
+                  disabled={chatLoading || !chatInput.trim()}
+                  type="button"
+                >
+                  {chatLoading ? "Sending..." : "Send"}
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       )}
     </div>

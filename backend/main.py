@@ -4,7 +4,6 @@ ContribFlow — FastAPI Backend
 Full pipeline: analyze → find issues → repo analysis → contribution plan.
 """
 
-import os
 import uuid
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,10 +11,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from tools.github_tool import resolve_input
-from agents.issue_finder import issue_finder_node
-from agents.repo_analyst import repo_analyst_node
-from agents.contrib_planner import contrib_planner_node
-from agents.domain_context import domain_context_node
+from agents.chat import chat_node
+from graph.graph import contribflow_graph
 
 load_dotenv()
 
@@ -38,6 +35,32 @@ app.add_middleware(
 sessions: dict = {}
 
 
+def invoke_supervised_flow(state: dict, start_step: str, target_step: str) -> dict:
+    """
+    Run the supervisor-routed LangGraph flow from start_step until target_step.
+    """
+    run_state = {
+        **state,
+        "next_step": start_step,
+        "target_step": target_step,
+        "current_step": "supervisor",
+        "error": None,
+    }
+
+    try:
+        result = contribflow_graph.invoke(run_state)
+        if isinstance(result, dict):
+            result["next_step"] = None
+            return result
+        run_state["error"] = "Workflow returned an unexpected state format."
+        run_state["next_step"] = None
+        return run_state
+    except Exception as e:
+        run_state["error"] = f"Workflow error while running {start_step.replace('_', ' ')}: {str(e)}"
+        run_state["next_step"] = None
+        return run_state
+
+
 # --- Request/Response Models ---
 
 class AnalyzeRequest(BaseModel):
@@ -52,6 +75,8 @@ class IssueResponse(BaseModel):
     body: str
     recommendation: str
     difficulty: str
+    difficulty_score: int | None = None
+    activity_score: int | None = None
 
 
 class AnalyzeResponse(BaseModel):
@@ -93,6 +118,17 @@ class DomainContextResponse(BaseModel):
     error: str | None = None
 
 
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
+
+
+class ChatResponse(BaseModel):
+    session_id: str
+    reply: str | None = None
+    error: str | None = None
+
+
 # --- API Routes ---
 
 @app.get("/api/health")
@@ -129,7 +165,11 @@ def analyze_repo(request: AnalyzeRequest):
         "selected_issue": None,
         "repo_analysis": None,
         "domain_context": None,
+        "pitfall_warnings": [],
         "action_plan": None,
+        "chat_history": [],
+        "next_step": None,
+        "target_step": None,
         "current_step": "resolving",
         "error": None,
     }
@@ -156,9 +196,12 @@ def analyze_repo(request: AnalyzeRequest):
             error=None,
         )
 
-    # Run Issue Finder
-    result = issue_finder_node(state)
-    state.update(result)
+    # Run Issue Finder through supervisor orchestration
+    state = invoke_supervised_flow(
+        state,
+        start_step="issue_finder",
+        target_step="issue_finder",
+    )
 
     # Create session
     session_id = str(uuid.uuid4())
@@ -199,9 +242,12 @@ def select_issue(request: SelectIssueRequest):
     # Store selected issue
     state["selected_issue"] = request.issue.model_dump()
 
-    # Run Repo Analyst Agent
-    result = repo_analyst_node(state)
-    state.update(result)
+    # Run Repo Analyst through supervisor orchestration
+    state = invoke_supervised_flow(
+        state,
+        start_step="repo_analyst",
+        target_step="repo_analyst",
+    )
 
     sessions[session_id] = state
 
@@ -238,9 +284,12 @@ def generate_plan(request: GeneratePlanRequest):
             detail="Repo analysis not complete. Select an issue first.",
         )
 
-    # Run Contrib Planner Agent
-    result = contrib_planner_node(state)
-    state.update(result)
+    # Run Contrib Planner through supervisor orchestration
+    state = invoke_supervised_flow(
+        state,
+        start_step="contrib_planner",
+        target_step="contrib_planner",
+    )
     sessions[session_id] = state
 
     if state.get("error"):
@@ -278,14 +327,53 @@ def get_domain_context(request: DomainContextRequest):
             error=None,
         )
 
-    # Run Domain Context Agent
-    result = domain_context_node(state)
-    state.update(result)
+    # Run Domain Context through supervisor orchestration
+    state = invoke_supervised_flow(
+        state,
+        start_step="domain_context",
+        target_step="domain_context",
+    )
     sessions[session_id] = state
 
     return DomainContextResponse(
         session_id=session_id,
         domain_context=state.get("domain_context"),
+        error=state.get("error"),
+    )
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat_with_session(request: ChatRequest):
+    """
+    Session-scoped follow-up Q&A grounded in repo/issue context.
+    """
+    session_id = request.session_id
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    state = sessions[session_id]
+    state.setdefault("chat_history", [])
+
+    message = request.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    result = chat_node(state, message)
+    if result.get("error"):
+        return ChatResponse(
+            session_id=session_id,
+            reply=None,
+            error=result["error"],
+        )
+
+    reply = result.get("reply", "")
+    state["chat_history"].append({"role": "user", "content": message})
+    state["chat_history"].append({"role": "assistant", "content": reply})
+    sessions[session_id] = state
+
+    return ChatResponse(
+        session_id=session_id,
+        reply=reply,
         error=None,
     )
 
@@ -301,4 +389,3 @@ def get_session(session_id: str):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-
