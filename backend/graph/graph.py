@@ -1,10 +1,8 @@
 """
 LangGraph Workflow — ContribFlow Pipeline
 
-Wires all agents together in a proper LangGraph StateGraph:
-  resolve → find_issues → select_issue → repo_analysis → domain_context → contrib_plan
-
-The supervisor routes between steps and handles errors.
+Supervisor-routed graph:
+  supervisor → agent → supervisor → ... → END
 """
 
 from langgraph.graph import StateGraph, END
@@ -13,18 +11,46 @@ from agents.issue_finder import issue_finder_node
 from agents.repo_analyst import repo_analyst_node
 from agents.domain_context import domain_context_node
 from agents.contrib_planner import contrib_planner_node
+from agents.supervisor import AGENT_ORDER, supervisor_node, route_from_supervisor
 
 
-def should_skip_domain(state: ContribFlowState) -> str:
-    """After domain context, always proceed to action plan."""
-    return "contrib_planner"
+def _next_after(step: str) -> str | None:
+    """Get next agent in workflow order."""
+    if step not in AGENT_ORDER:
+        return None
+    idx = AGENT_ORDER.index(step)
+    if idx + 1 >= len(AGENT_ORDER):
+        return None
+    return AGENT_ORDER[idx + 1]
 
 
-def check_error(state: ContribFlowState) -> str:
-    """Check if the current step errored. If so, stop."""
-    if state.get("error"):
-        return "end"
-    return "continue"
+def _wrap_agent(step_name: str, node_fn):
+    """
+    Run an agent and return control to supervisor with updated next_step.
+    """
+
+    def wrapped(state: ContribFlowState) -> dict:
+        try:
+            result = node_fn(state)
+        except Exception:
+            return {
+                "current_step": step_name,
+                "next_step": None,
+                "error": f"Something went wrong in {step_name.replace('_', ' ')}.",
+            }
+
+        if result.get("error"):
+            result["next_step"] = None
+            return result
+
+        target_step = state.get("target_step")
+        if target_step == step_name:
+            result["next_step"] = None
+        else:
+            result["next_step"] = _next_after(step_name)
+        return result
+
+    return wrapped
 
 
 # --- Build the Graph ---
@@ -34,26 +60,34 @@ def build_graph():
 
     workflow = StateGraph(ContribFlowState)
 
-    # Add nodes
-    workflow.add_node("issue_finder", issue_finder_node)
-    workflow.add_node("repo_analyst", repo_analyst_node)
-    workflow.add_node("domain_context", domain_context_node)
-    workflow.add_node("contrib_planner", contrib_planner_node)
+    # Nodes
+    workflow.add_node("supervisor", supervisor_node)
+    workflow.add_node("issue_finder", _wrap_agent("issue_finder", issue_finder_node))
+    workflow.add_node("repo_analyst", _wrap_agent("repo_analyst", repo_analyst_node))
+    workflow.add_node("domain_context", _wrap_agent("domain_context", domain_context_node))
+    workflow.add_node("contrib_planner", _wrap_agent("contrib_planner", contrib_planner_node))
 
-    # Entry point
-    workflow.set_entry_point("issue_finder")
+    # Entry point is always supervisor.
+    workflow.set_entry_point("supervisor")
 
-    # Edges: issue_finder → repo_analyst (after user selects an issue)
+    # Supervisor routes to the requested next step.
     workflow.add_conditional_edges(
-        "issue_finder",
-        check_error,
-        {"end": END, "continue": END},  # Pause here — user selects issue
+        "supervisor",
+        route_from_supervisor,
+        {
+            "issue_finder": "issue_finder",
+            "repo_analyst": "repo_analyst",
+            "domain_context": "domain_context",
+            "contrib_planner": "contrib_planner",
+            "end": END,
+        },
     )
 
-    # repo_analyst → domain_context → contrib_planner → END
-    workflow.add_edge("repo_analyst", "domain_context")
-    workflow.add_edge("domain_context", "contrib_planner")
-    workflow.add_edge("contrib_planner", END)
+    # Every agent returns to supervisor for centralized routing decisions.
+    workflow.add_edge("issue_finder", "supervisor")
+    workflow.add_edge("repo_analyst", "supervisor")
+    workflow.add_edge("domain_context", "supervisor")
+    workflow.add_edge("contrib_planner", "supervisor")
 
     return workflow.compile()
 
