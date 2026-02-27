@@ -144,6 +144,19 @@ Body: {issue['body'][:500]}
 
         ranked_issues = json.loads(response_text)
 
+        # Merge computed scores from raw_issues into ranked results
+        scores_by_number = {
+            issue["number"]: {
+                "difficulty_score": issue.get("difficulty_score", 5),
+                "activity_score": issue.get("activity_score", 5),
+            }
+            for issue in raw_issues
+        }
+        for issue in ranked_issues:
+            scores = scores_by_number.get(issue["number"], {})
+            issue["difficulty_score"] = scores.get("difficulty_score", 5)
+            issue["activity_score"] = scores.get("activity_score", 5)
+
         return {
             "issues": ranked_issues,
             "current_step": "issue_finder",
@@ -162,6 +175,8 @@ Body: {issue['body'][:500]}
                 "body": issue["body"][:500],
                 "recommendation": "This issue appears to be open and available for contribution.",
                 "difficulty": "medium",
+                "difficulty_score": issue.get("difficulty_score", 5),
+                "activity_score": issue.get("activity_score", 5),
             })
         return {
             "issues": fallback_issues,
