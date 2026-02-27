@@ -34,24 +34,30 @@ def get_llm():
 ISSUE_RANKING_PROMPT = """You are an expert open source contribution advisor. 
 A developer wants to make their first contribution to the repository: {repo}
 
-Here are the open issues found in the repository (some may have beginner labels, others may not):
+Here are the open issues found in the repository (some may have beginner labels, others may not).
+Each issue includes computed scores to help your analysis:
+- **Difficulty Score** (1-10, lower = easier): Based on labels, file references, code complexity, and structure
+- **Activity Score** (1-10, higher = more active): Based on maintainer engagement, recency, and community interest
 
 {issues_text}
 
 Your job:
 1. Analyze EVERY issue — even those without beginner labels may be great for first-time contributors.
-2. Evaluate beginner suitability based on:
+2. Use the computed scores as anchoring data, but apply your own judgment too. A low difficulty score + high activity score = ideal for beginners.
+3. Evaluate beginner suitability based on:
    - Scope: Small, well-defined tasks (docs, tests, small bug fixes) are better
    - Prerequisites: Issues requiring minimal domain knowledge are better
    - Clarity: Well-described issues with clear steps are better
    - Labels like "good first issue" or "help wanted" are positive signals, but their ABSENCE doesn't mean the issue is hard
-3. Select the TOP 3-5 best issues for a newcomer (fewer if there aren't enough good ones).
-4. For each selected issue, provide:
+   - Activity: Issues where maintainers are engaged are more likely to get PRs reviewed
+4. Select the TOP 3-5 best issues for a newcomer (fewer if there aren't enough good ones).
+5. For each selected issue, provide:
    - A clear, plain-English explanation of what the issue is asking
-   - WHY this issue is good for a newcomer
+   - WHY this issue is good for a newcomer (reference the scores if relevant)
    - A difficulty rating: "easy", "medium", or "hard"
 
 IMPORTANT: If none of the issues are suitable for beginners, return an empty array. Don't recommend bad issues.
+IMPORTANT: Prefer issues with high activity scores — these are more likely to get PRs reviewed quickly.
 
 Respond in this exact JSON format (no markdown, no code blocks, just raw JSON):
 [
@@ -97,10 +103,12 @@ def issue_finder_node(state: ContribFlowState) -> dict:
                 "error": f"No open issues found in {repo}. The repo might not have any beginner-friendly issues right now.",
             }
 
-        # Format issues for the LLM
+        # Format issues for the LLM (include computed scores)
         issues_text = ""
         for issue in raw_issues:
             labels_str = ", ".join(issue["labels"]) if issue["labels"] else "none"
+            diff_score = issue.get("difficulty_score", "N/A")
+            act_score = issue.get("activity_score", "N/A")
             issues_text += f"""
 ---
 Issue #{issue['number']}: {issue['title']}
@@ -108,6 +116,7 @@ URL: {issue['url']}
 Labels: {labels_str}
 Comments: {issue['comments_count']}
 Last updated: {issue['updated_at']}
+[Computed] Difficulty Score: {diff_score}/10 | Activity Score: {act_score}/10
 Body: {issue['body'][:500]}
 ---
 """

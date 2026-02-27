@@ -155,7 +155,7 @@ def get_beginner_issues(repo_full_name: str, max_issues: int = 20) -> list[dict]
         "low-hanging-fruit",
     ]
 
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=180)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=100)
     collected_issues = {}
 
     # Fetch issues with beginner-friendly labels
@@ -220,8 +220,125 @@ def get_beginner_issues(repo_full_name: str, max_issues: int = 20) -> list[dict]
     return list(collected_issues.values())[:max_issues]
 
 
+def _compute_difficulty_score(issue) -> int:
+    """
+    Compute a difficulty score (1-10, lower = easier) based on:
+    - Labels (strongest signal)
+    - File path references in body
+    - Code blocks in body
+    - Checklists/steps in body
+    - Comment count (debate indicator)
+    """
+    score = 5  # Base
+
+    # --- Label signals (strongest anchor) ---
+    label_names = [label.name.lower() for label in issue.labels]
+
+    easy_labels = {"good first issue", "good-first-issue", "first-timers-only", "starter"}
+    medium_labels = {"help wanted", "help-wanted", "documentation", "docs", "beginner",
+                     "beginner-friendly", "easy", "up-for-grabs", "low-hanging-fruit"}
+
+    if any(l in easy_labels for l in label_names):
+        score -= 2
+    elif any(l in medium_labels for l in label_names):
+        score -= 1
+
+    if not label_names:
+        score += 1  # No labels = ambiguous scope
+
+    # --- Body content signals ---
+    body = issue.body or ""
+
+    # File path references (e.g., src/utils/helper.py, ./components/Button.tsx)
+    file_paths = re.findall(r'[\w./\-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|rb|cpp|c|h|css|html|md|yml|yaml|json|toml)', body)
+    if len(file_paths) >= 5:
+        score += 2
+    elif len(file_paths) >= 3:
+        score += 1
+
+    # Code blocks (large code = complex context)
+    code_blocks = re.findall(r'```[\s\S]*?```', body)
+    total_code_lines = sum(block.count('\n') for block in code_blocks)
+    if total_code_lines >= 20:
+        score += 1
+
+    # Checklists or numbered steps (clear structure = easier)
+    if re.search(r'- \[[ x]\]', body) or re.search(r'^\d+\.\s', body, re.MULTILINE):
+        score -= 1
+
+    # --- Engagement signal ---
+    if issue.comments >= 10:
+        score += 1  # Many comments = likely complex/debated
+
+    return max(1, min(10, score))  # Clamp to [1, 10]
+
+
+def _compute_activity_score(issue) -> int:
+    """
+    Compute an activity score (1-10, higher = more active) based on:
+    - Maintainer engagement (strongest signal)
+    - Recency of updates
+    - Reactions (community interest)
+    - Contributor engagement
+    """
+    score = 5  # Base
+    now = datetime.now(timezone.utc)
+
+    # --- Maintainer presence (strongest signal, worth up to +4) ---
+    has_maintainer = False
+    latest_maintainer_date = None
+    has_contributor = False
+
+    try:
+        for comment in issue.get_comments():
+            assoc = comment.author_association
+            if assoc in ("OWNER", "MEMBER", "COLLABORATOR"):
+                has_maintainer = True
+                if latest_maintainer_date is None or comment.created_at > latest_maintainer_date:
+                    latest_maintainer_date = comment.created_at
+            elif assoc == "CONTRIBUTOR":
+                has_contributor = True
+
+            # Stop once we have both signals
+            if has_maintainer and has_contributor:
+                break
+    except Exception:
+        pass  # Don't fail scoring if comments can't be fetched
+
+    if has_maintainer:
+        score += 3
+        if latest_maintainer_date and (now - latest_maintainer_date).days <= 30:
+            score += 1  # Recent maintainer activity
+
+    # --- Recency ---
+    days_since_update = (now - issue.updated_at.replace(tzinfo=timezone.utc)).days
+    if days_since_update <= 14:
+        score += 1
+    elif 30 < days_since_update <= 60:
+        score -= 1
+    elif 60 < days_since_update <= 100:
+        score -= 2
+
+    # --- Community signals ---
+    try:
+        reactions = issue.get_reactions()
+        reaction_count = reactions.totalCount
+        if reaction_count >= 3:
+            score += 1
+    except Exception:
+        pass  # Reactions API might not be available
+
+    if has_contributor:
+        score += 1
+
+    if issue.comments == 0:
+        score -= 1  # No engagement at all
+
+    return max(1, min(10, score))  # Clamp to [1, 10]
+
+
 def _issue_to_dict(issue) -> dict:
-    """Convert a PyGithub issue to a plain dict."""
+    """Convert a PyGithub issue to a plain dict with computed scores."""
     return {
         "number": issue.number,
         "title": issue.title,
@@ -231,6 +348,8 @@ def _issue_to_dict(issue) -> dict:
         "created_at": issue.created_at.isoformat(),
         "updated_at": issue.updated_at.isoformat(),
         "comments_count": issue.comments,
+        "difficulty_score": _compute_difficulty_score(issue),
+        "activity_score": _compute_activity_score(issue),
     }
 
 
