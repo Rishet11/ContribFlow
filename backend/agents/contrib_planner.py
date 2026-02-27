@@ -41,6 +41,7 @@ CONTRIB_PLAN_PROMPT = """You are an expert open source contribution coach. A dev
 {repo_analysis}
 
 {domain_context_section}
+{pitfall_warnings_section}
 
 ---
 
@@ -53,7 +54,8 @@ Generate a **numbered step-by-step contribution plan**. Be specific and actionab
 5. **Test Your Changes** — How to run tests, what to verify
 6. **Open the PR** — Suggested PR title, description structure, and any conventions to follow
 7. **Contribution Tips** — Etiquette reminders (link the issue, be patient, don't ask "is this still open")
-8. **Next Steps** — What to do after this PR to keep contributing
+8. **Pitfall Checklist** — Explicitly call out repo-specific pitfalls (formatters, lint, test, commit message rules) and exact commands to run
+9. **Next Steps** — What to do after this PR to keep contributing
 
 IMPORTANT RULES:
 - Do NOT write actual code for the developer — they must write it themselves
@@ -100,6 +102,18 @@ def contrib_planner_node(state: ContribFlowState) -> dict:
 {domain_context}
 """
 
+        # Build pitfall warning section
+        pitfall_warnings = state.get("pitfall_warnings", [])
+        pitfall_warnings_section = ""
+        if pitfall_warnings:
+            warnings_md = "\n".join(
+                f"- {w.get('title', 'Warning')}: {w.get('recommendation', '')} (source: {w.get('source', 'repo config')})"
+                for w in pitfall_warnings
+            )
+            pitfall_warnings_section = f"""## Repo-Specific Pitfall Warnings:
+{warnings_md}
+"""
+
         # Build prompt
         prompt = CONTRIB_PLAN_PROMPT.format(
             repo=repo,
@@ -108,6 +122,7 @@ def contrib_planner_node(state: ContribFlowState) -> dict:
             issue_body=selected_issue.get("body", "No description provided."),
             repo_analysis=repo_analysis,
             domain_context_section=domain_context_section,
+            pitfall_warnings_section=pitfall_warnings_section,
         )
 
         # Ask Gemini

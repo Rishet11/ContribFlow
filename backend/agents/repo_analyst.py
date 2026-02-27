@@ -6,11 +6,11 @@ in plain English. Makes an unfamiliar codebase feel approachable.
 """
 
 import os
-import json
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from graph.state import ContribFlowState
 from tools.github_tool import get_repo_structure, get_issue_details
+from agents.pitfall_detector import detect_repo_pitfalls
 
 load_dotenv()
 
@@ -49,6 +49,9 @@ REPO_ANALYSIS_PROMPT = """You are an expert open source mentor helping a develop
 ## CONTRIBUTING.md:
 {contributing}
 
+## Repo Pitfall Signals (deterministic extraction):
+{pitfall_context}
+
 ## Selected Issue #{issue_number}: {issue_title}
 {issue_body}
 
@@ -68,6 +71,7 @@ Your job is to produce a clear, structured analysis that helps a FIRST-TIME cont
    - What files/folders are likely relevant?
 5. **Relevant Files** — List the specific files or directories the contributor should look at.
 6. **Difficulty Assessment** — Honest rating of how hard this issue is for a first-timer.
+7. **Pitfall Warnings** — Mention repo-specific pitfalls detected from configs/docs and how to avoid them.
 
 Be concise but thorough. Use markdown formatting. If you detect scientific or domain-specific terminology, flag it clearly — the Domain Context agent will handle deeper explanations.
 
@@ -106,6 +110,13 @@ def repo_analyst_node(state: ContribFlowState) -> dict:
         # Fetch detailed issue info
         issue_details = get_issue_details(repo, selected_issue["number"])
 
+        # Detect deterministic repo-specific pitfalls from docs/config files
+        pitfall_warnings = detect_repo_pitfalls(
+            repo,
+            readme_text=repo_info.get("readme", ""),
+            contributing_text=repo_info.get("contributing", ""),
+        )
+
         # Format file tree
         file_tree = "\n".join(f"  {'📁' if f.endswith('/') else '📄'} {f}" for f in repo_info["file_tree"])
 
@@ -117,6 +128,15 @@ def repo_analyst_node(state: ContribFlowState) -> dict:
         else:
             comments_text = "No comments yet."
 
+        # Format deterministic pitfall context for the LLM
+        if pitfall_warnings:
+            pitfall_context = "\n".join(
+                f"- {w['title']}: {w['recommendation']} (source: {w['source']})"
+                for w in pitfall_warnings
+            )
+        else:
+            pitfall_context = "No explicit pitfalls detected from standard config/docs files."
+
         # Build prompt
         prompt = REPO_ANALYSIS_PROMPT.format(
             repo=repo,
@@ -127,6 +147,7 @@ def repo_analyst_node(state: ContribFlowState) -> dict:
             file_tree=file_tree or "Could not fetch file tree.",
             readme=repo_info["readme"] or "No README found.",
             contributing=repo_info["contributing"] or "No CONTRIBUTING.md found.",
+            pitfall_context=pitfall_context,
             issue_number=selected_issue["number"],
             issue_title=selected_issue["title"],
             issue_body=issue_details.get("body", selected_issue.get("body", "No description.")),
@@ -146,8 +167,21 @@ def repo_analyst_node(state: ContribFlowState) -> dict:
         else:
             analysis = content.strip()
 
+        # Ensure pitfalls always appear explicitly for the frontend/user.
+        if pitfall_warnings:
+            pitfalls_md = "\n".join(
+                f"- **{w['title']}**: {w['recommendation']} _(Source: `{w['source']}`)_"
+                for w in pitfall_warnings
+            )
+            analysis = f"""{analysis}
+
+## Repo-Specific Pitfall Warnings
+{pitfalls_md}
+"""
+
         return {
             "repo_analysis": analysis,
+            "pitfall_warnings": pitfall_warnings,
             "current_step": "repo_analyst",
             "error": None,
         }
@@ -155,6 +189,7 @@ def repo_analyst_node(state: ContribFlowState) -> dict:
     except Exception as e:
         return {
             "repo_analysis": None,
+            "pitfall_warnings": [],
             "current_step": "repo_analyst",
             "error": f"Error analyzing repository: {str(e)}",
         }

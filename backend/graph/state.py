@@ -4,7 +4,7 @@ ContribFlow LangGraph State Schema
 Shared state passed between all agents in the graph.
 """
 
-from typing import TypedDict, Optional
+from typing import NotRequired, Optional, TypedDict
 
 
 class Issue(TypedDict):
@@ -16,6 +16,21 @@ class Issue(TypedDict):
     body: str
     recommendation: str  # AI-generated explanation of why this issue is good
     difficulty: str  # "easy", "medium", "hard"
+    difficulty_score: NotRequired[int]
+    activity_score: NotRequired[int]
+
+
+class PitfallWarning(TypedDict):
+    """Structured warning extracted from repo config/docs."""
+    title: str
+    recommendation: str
+    source: str
+
+
+class ChatMessage(TypedDict):
+    """Single session chat message."""
+    role: str  # "user" | "assistant"
+    content: str
 
 
 class ContribFlowState(TypedDict):
@@ -41,8 +56,18 @@ class ContribFlowState(TypedDict):
     # Domain Context output (optional)
     domain_context: Optional[str]  # Domain primer if scientific repo
 
+    # Repo-specific pitfalls
+    pitfall_warnings: list[PitfallWarning]
+
     # Contrib Planner output
     action_plan: Optional[str]  # Final step-by-step contribution plan
+
+    # Session chat memory
+    chat_history: list[ChatMessage]
+
+    # Supervisor flow control
+    next_step: Optional[str]  # Next agent to execute
+    target_step: Optional[str]  # Step where graph should pause/end
 
     # Flow control
     current_step: str  # Which agent is currently running
